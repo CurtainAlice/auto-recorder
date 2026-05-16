@@ -23,15 +23,15 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pyperclip openpyxl pyinstaller
+        pip install pyautogui pyperclip openpyxl pyinstaller
 
     - name: Build EXE
       run: |
-        pyinstaller --onefile --windowed --name "智能表格复制工具" --clean smart_copy.py
+        pyinstaller --onefile --windowed --name "全自动表格复制工具" --clean auto_copy.py
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: 智能表格复制工具
+        name: 全自动表格复制工具
         path: dist/
         retention-days: 30
