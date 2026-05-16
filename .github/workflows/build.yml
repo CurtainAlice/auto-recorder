@@ -20,41 +20,18 @@ jobs:
       with:
         python-version: '3.10'
 
-    - name: Install Tesseract OCR
-      shell: powershell
-      run: |
-        $url = "https://digi.bib.uni-mannheim.de/tesseract/tesseract-ocr-w64-setup-v5.3.3.20231005.exe"
-        $output = "$env:TEMP\tesseract-setup.exe"
-        Invoke-WebRequest -Uri $url -OutFile $output
-        Start-Process -FilePath $output -ArgumentList '/S' -Wait
-        $tesseractPath = "C:\Program Files\Tesseract-OCR"
-        echo "$tesseractPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-        echo "TESSDATA_PREFIX=$tesseractPath\tessdata" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-    - name: Verify Tesseract
-      shell: powershell
-      run: |
-        & "C:\Program Files\Tesseract-OCR\tesseract.exe" --version
-
-    - name: Install Chinese Language Data
-      shell: powershell
-      run: |
-        $tessdata = "C:\Program Files\Tesseract-OCR\tessdata"
-        $chiSimUrl = "https://github.com/tesseract-ocr/tessdata/raw/main/chi_sim.traineddata"
-        Invoke-WebRequest -Uri $chiSimUrl -OutFile "$tessdata\chi_sim.traineddata"
-
-    - name: Install Python dependencies
+    - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pyautogui pyperclip openpyxl pytesseract Pillow pyinstaller
+        pip install pyperclip openpyxl pyinstaller
 
     - name: Build EXE
       run: |
-        pyinstaller --onefile --windowed --name "智能表格复制工具" --add-data "C:\Program Files\Tesseract-OCR\tessdata;tessdata" --clean smart_copy.py
+        pyinstaller --onefile --windowed --name "智能表格复制工具" --clean smart_copy.py
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: 智能表格复制工具-OCR版
+        name: 智能表格复制工具
         path: dist/
-        retention-days: 7
+        retention-days: 30
