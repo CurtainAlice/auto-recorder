@@ -1,6 +1,6 @@
 """
 全自动表格复制工具
-功能：自动从网页表格复制数据到Excel，全自动操作
+功能：自动从网页表格复制数据到Excel，支持滚动加载
 """
 import time
 import pyperclip
@@ -30,7 +30,8 @@ class AutoCopyTool:
 
         # 配置参数（可根据实际情况调整）
         self.row_height = 25  # 每行高度（像素）
-        self.table_x = 100   # 表格区域的X坐标（序号列位置）
+        self.batch_size = 100  # 每批复制数量
+        self.scroll_pause = 1.0  # 滚动后等待时间（秒）
 
     def init_excel(self):
         """初始化Excel文件"""
@@ -96,13 +97,13 @@ class AutoCopyTool:
             return ""
 
     def calibrate_position(self):
-        """校准位置 - 记录起始行的屏幕坐标"""
+        """校准位置 - 记录第1行的屏幕坐标"""
         print("\n" + "="*50)
         print("📍 校准位置")
         print("="*50)
         print("请按照以下步骤操作：")
         print("1. 在DataWorks中找到第1行数据")
-        print("2. 将鼠标移到第1行的序号上")
+        print("2. 将鼠标移到第1行的任意位置")
         print("3. 按 Enter 记录位置")
         print("="*50)
 
@@ -117,10 +118,8 @@ class AutoCopyTool:
         x, y = pyautogui.position()
         self.start_x = x
         self.start_y = y
-        self.start_row_num = 1
 
-        print(f"\n✅ 已记录起始位置：({x}, {y})")
-        print(f"✅ 起始行号：{self.start_row_num}")
+        print(f"\n✅ 已记录位置：({x}, {y})")
 
         # 询问行高
         try:
@@ -132,28 +131,18 @@ class AutoCopyTool:
 
         print(f"✅ 行高：{self.row_height} 像素")
 
-    def select_rows(self, start_row, end_row):
-        """选择指定范围的行"""
-        if not hasattr(self, 'start_x'):
-            print("❌ 请先校准位置")
-            return False
-
-        # 计算起始和结束行的Y坐标
-        start_y = self.start_y + (start_row - self.start_row_num) * self.row_height
-        end_y = self.start_y + (end_row - self.start_row_num) * self.row_height
-
-        print(f"\n📍 选择行 {start_row} 到 {end_row}")
-        print(f"   起始位置：({self.start_x}, {start_y})")
-        print(f"   结束位置：({self.start_x}, {end_y})")
+    def select_rows_on_screen(self, start_y, end_y):
+        """在屏幕上选择指定Y范围的行"""
+        x = self.start_x
 
         try:
-            # 点击起始行
-            pyautogui.click(self.start_x, start_y)
+            # 点击起始位置
+            pyautogui.click(x, start_y)
             time.sleep(0.1)
 
-            # 按住Shift点击结束行
+            # 按住Shift点击结束位置
             pyautogui.keyDown('shift')
-            pyautogui.click(self.start_x, end_y)
+            pyautogui.click(x, end_y)
             pyautogui.keyUp('shift')
             time.sleep(0.2)
 
@@ -166,12 +155,28 @@ class AutoCopyTool:
             print(f"❌ 选择失败：{e}")
             return False
 
-    def auto_copy_batch(self, start_row, end_row):
-        """自动复制一批数据"""
-        print(f"\n🚀 自动复制：第 {start_row} 行 到第 {end_row} 行")
+    def scroll_down(self, clicks=5):
+        """向下滚动表格"""
+        print(f"⬇️ 滚动表格...")
+        pyautogui.scroll(-clicks, self.start_x, 400)  # 向下滚动
+        time.sleep(self.scroll_pause)
 
-        # 选择行
-        if not self.select_rows(start_row, end_row):
+    def scroll_up_to_top(self):
+        """滚动到顶部"""
+        print("⬆️ 滚动到顶部...")
+        # 按Home键回到顶部
+        pyautogui.press('home')
+        time.sleep(1)
+
+    def copy_batch_from_screen(self, visible_rows):
+        """从屏幕上复制可见的行"""
+        # 计算屏幕上可见行的Y范围
+        start_y = self.start_y
+        end_y = self.start_y + (visible_rows - 1) * self.row_height
+
+        print(f"📍 选择屏幕上的行：Y={start_y} 到 Y={end_y}")
+
+        if not self.select_rows_on_screen(start_y, end_y):
             return 0
 
         # 获取剪贴板数据
@@ -183,35 +188,87 @@ class AutoCopyTool:
         # 粘贴到Excel
         count = self.paste_to_excel(data)
         print(f"✅ 成功复制 {count} 条数据")
-        print(f"📊 已复制总数：{self.copied_count} 条")
 
         return count
 
-    def auto_copy_by_total(self, start_row, total_count):
-        """根据总数自动复制（每批100条）"""
-        batch_size = 100
-        copied = 0
-
+    def auto_copy_by_total(self, total_count):
+        """根据总数自动复制（支持滚动）"""
         print(f"\n🚀 开始自动复制，共 {total_count} 条")
-        print(f"   每批 {batch_size} 条，共 {(total_count + batch_size - 1) // batch_size} 批")
+        print(f"   每批 {self.batch_size} 条")
+
+        # 先滚动到顶部
+        self.scroll_up_to_top()
+        time.sleep(1)
+
+        copied = 0
+        batch_num = 0
 
         while copied < total_count:
-            current_start = start_row + copied
-            current_end = min(current_start + batch_size - 1, start_row + total_count - 1)
+            batch_num += 1
+            remaining = total_count - copied
+            current_batch = min(self.batch_size, remaining)
 
-            print(f"\n--- 第 {(copied // batch_size) + 1} 批 ---")
-            count = self.auto_copy_batch(current_start, current_end)
+            print(f"\n--- 第 {batch_num} 批 ---")
+            print(f"   需要复制：{current_batch} 条")
+
+            # 计算当前屏幕可见的行数
+            visible_rows = min(current_batch, self.batch_size)
+
+            # 从屏幕复制
+            count = self.copy_batch_from_screen(visible_rows)
 
             if count == 0:
                 print("❌ 复制失败，停止")
                 break
 
             copied += count
+            print(f"📊 已复制总数：{copied}/{total_count}")
 
-            # 批次间暂停
+            # 如果还有更多数据，滚动
             if copied < total_count:
-                print(f"⏸️ 暂停2秒，继续下一批...")
-                time.sleep(2)
+                # 向下滚动，让下一批数据可见
+                self.scroll_down(self.batch_size)
+                print(f"⏸️ 等待 {self.scroll_pause} 秒加载...")
+                time.sleep(self.scroll_pause)
+
+        print(f"\n🎉 完成！共复制 {copied} 条数据")
+        return copied
+
+    def auto_copy_range(self, start_row, end_row):
+        """自动复制指定行号范围（需要滚动）"""
+        total = end_row - start_row + 1
+        print(f"\n🚀 自动复制：第 {start_row} 行 到 第 {end_row} 行，共 {total} 条")
+
+        # 滚动到顶部
+        self.scroll_up_to_top()
+        time.sleep(1)
+
+        copied = 0
+        current_row = start_row
+
+        while current_row <= end_row:
+            # 计算当前批次
+            remaining = end_row - current_row + 1
+            current_batch = min(self.batch_size, remaining)
+
+            print(f"\n--- 当前行：{current_row} ---")
+
+            # 从屏幕复制
+            count = self.copy_batch_from_screen(current_batch)
+
+            if count == 0:
+                print("❌ 复制失败，停止")
+                break
+
+            copied += count
+            current_row += count
+            print(f"📊 已复制：{copied} 条，下一行：{current_row}")
+
+            # 如果还有更多数据，滚动
+            if current_row <= end_row:
+                self.scroll_down(self.batch_size)
+                print(f"⏸️ 等待加载...")
+                time.sleep(self.scroll_pause)
 
         print(f"\n🎉 完成！共复制 {copied} 条数据")
         return copied
@@ -258,7 +315,7 @@ class AutoCopyTool:
 
         while True:
             print("\n选择操作：")
-            print("1. 复制指定范围")
+            print("1. 复制指定行号范围")
             print("2. 根据总数复制")
             print("3. 返回主菜单")
 
@@ -268,15 +325,14 @@ class AutoCopyTool:
                 try:
                     start = int(input("起始行号："))
                     end = int(input("结束行号："))
-                    self.auto_copy_batch(start, end)
+                    self.auto_copy_range(start, end)
                 except ValueError:
                     print("❌ 请输入有效的数字")
 
             elif choice == '2':
                 try:
-                    start = int(input("起始行号："))
                     total = int(input("总行数："))
-                    self.auto_copy_by_total(start, total)
+                    self.auto_copy_by_total(total)
                 except ValueError:
                     print("❌ 请输入有效的数字")
 
@@ -298,6 +354,7 @@ class AutoCopyTool:
         print("🔧 全自动表格复制工具")
         print("="*60)
         print("功能：自动从网页表格复制数据到Excel")
+        print("     支持滚动加载，批量复制")
         print("="*60)
 
         if not HAS_PYAUTOGUI:
